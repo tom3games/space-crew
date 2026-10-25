@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>宇宙船クルー｜みんなで1隻を飛ばす協力ゲーム</title>
+<meta name="description" content="操縦・エンジン・修理・ナビ・防衛。担当ごとに違う操作盤で、全員で1隻の宇宙船を目的地まで運ぶ。リンクを送るだけでスマホから3〜8人で遊べる。">
+<meta property="og:type" content="website">
+<meta property="og:title" content="宇宙船クルー｜みんなで1隻を飛ばす協力ゲーム">
+<meta property="og:description" content="危険地帯が見えるのはナビだけ。舵を握るのは別の人。声を掛け合って、壊れていく船を目的地まで運べ。3〜8人・1プレイ約2分。">
+<meta property="og:image" content="/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0b1020">
+<link rel="stylesheet" href="/style.css">
+<script>
+  // 起動に失敗したときに原因を画面に出す（module の読み込み自体が失敗すると中の catch は動かないため、素の script で拾う）
+  window.__errs = []
+  window.addEventListener('error', e => window.__errs.push(e.message || String(e)))
+  window.addEventListener('unhandledrejection', e => window.__errs.push(String(e.reason)))
+  setTimeout(() => {
+    if (window.__boot) return
+    const d = document.getElementById('bootErr')
+    d.hidden = false
+    d.textContent = '起動できませんでした: ' + (window.__errs.join(' / ') || '読み込み失敗') + ' / ' + navigator.userAgent
+  }, 5000)
+  // ブラウザの拡大を止める（iOS は viewport の指定を無視するので、ジェスチャーごと止める）
+  ;(function () {
+    const stop = e => e.preventDefault()
+    const opt = { passive: false }
+    for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, stop, opt)
+    document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault() }, opt)
+    let lastEnd = 0
+    document.addEventListener('touchend', e => {
+      const now = Date.now()
+      const onCtl = e.target.closest && e.target.closest('button, input, canvas, summary')
+      if (!onCtl && now - lastEnd < 350) e.preventDefault()
+      lastEnd = now
+    }, opt)
+    document.addEventListener('dblclick', stop, opt)
+    document.addEventListener('wheel', e => { if (e.ctrlKey) e.preventDefault() }, opt)
+    document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '0', ';'].includes(e.key)) e.preventDefault() })
+  })()
+</script>
+</head>
+<body>
+<div id="bootErr" class="boot-err" hidden></div>
+
+<header class="top">
+  <span class="logo" id="logo"><svg class="logo-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l6 15-6-3-6 3Z"/><path d="M9 19l3 3 3-3"/></svg>宇宙船クルー</span>
+  <span class="net" id="net" data-s="connecting">接続しています</span>
+</header>
+
+<main>
+  <section id="home" class="card" hidden>
+    <p class="eyebrow">3〜8人で遊ぶ協力ゲーム</p>
+    <h1 id="homeTitle">宇宙船クルー</h1>
+    <p id="homeLead" class="lead">全員で1隻の船を動かす。危険が見えるのはナビだけ、舵を握るのは別の人。声を掛け合って目的地まで運ぼう。</p>
+    <label class="field">ニックネーム
+      <input id="name" maxlength="12" autocomplete="nickname" placeholder="例: たろう" enterkeyhint="done">
+    </label>
+    <button id="createBtn" class="primary">部屋を作る</button>
+    <details id="joinBox">
+      <summary>参加コードで入る</summary>
+      <div class="row">
+        <input id="code" maxlength="4" inputmode="latin" autocapitalize="characters" placeholder="ABCD" aria-label="参加コード">
+        <button id="joinBtn">参加</button>
+      </div>
+    </details>
+    <div id="howto" class="howto">
+      <p class="howto-k">遊び方</p>
+      <ol>
+        <li>担当が配られる。<b>操縦・エンジン・修理・ナビ・防衛</b>で操作盤が全部違う</li>
+        <li>岩場と電磁嵐は<b>ナビの地図にしか出ない</b>。口で伝えて避ける</li>
+        <li>故障は次々起きる。全部は直せない。何から直すか決めて、<b>150秒以内に目的地へ</b></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="lobby" class="card" hidden>
+    <p class="muted">参加コード</p>
+    <p class="code" id="roomCode"></p>
+    <div class="row">
+      <input id="invite" readonly aria-label="招待URL">
+      <button id="copyBtn">招待</button>
+    </div>
+    <p class="muted"><span id="count"></span></p>
+    <ul id="players" class="players"></ul>
+    <p id="rolePreview" class="role-preview"></p>
+    <p id="lobbyHint" class="hint"></p>
+    <button id="startBtn" class="primary" hidden>発進準備</button>
+    <button id="leaveBtn" class="ghost">部屋を出る</button>
+  </section>
+
+  <section id="game" hidden>
+    <div id="stage" class="stage"></div>
+    <button id="quitBtn" class="ghost small quit">退出</button>
+  </section>
+
+  <section id="result" class="card" hidden>
+    <h2 id="resultTitle" class="result-title"></h2>
+    <div id="resultBody"></div>
+    <p id="resultHint" class="hint"></p>
+    <div class="res-btns">
+      <button id="rematchBtn" class="primary" hidden>もう一回</button>
+      <button id="lobbyBtn" class="ghost" hidden>ロビーに戻る</button>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" role="status" hidden></div>
+<footer class="foot"><span id="ping"></span></footer>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
