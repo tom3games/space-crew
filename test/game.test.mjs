@@ -1,17 +1,17 @@
 // 宇宙船クルーのルールの単体テスト（通信なし）
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createGame, rolesFor, ROLES, SYSTEMS, DEFAULTS, TUNING } from '../lib/game.mjs'
+import { createGame, rolesFor, ROLES, SYSTEMS, DEFAULTS, TUNING, ROUTES, ROUTE_IDS, DEFAULT_ROUTE } from '../lib/game.mjs'
 
 function rng(seed = 1) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296 } }
 const run = (g, sec) => { for (let i = 0; i < Math.round(sec * 15); i++) g.tick(1 / 15) }
 const players = n => [...Array(n)].map((_, i) => ({ id: 'p' + i, name: 'P' + i }))
 // 発進まで進め、自然故障と隕石を止めた状態の船を作る（狙ったことだけを試すため）
-function setup(n = 5, { calm = true, config } = {}) {
-  const g = createGame(players(n), { rng: rng(7), config })
+function setup(n = 5, { calm = true, config, route } = {}) {
+  const g = createGame(players(n), { rng: rng(7), config, route })
   const D = g._debug
   run(g, DEFAULTS.briefTime + 0.1)
-  if (calm) { D.nextFail = 1e9; D.nextMeteor = 1e9; D.course.hazards.length = 0 }
+  if (calm) { D.nextFail = 1e9; D.nextMeteor = 1e9; D.course.hazards.length = 0; D.course.wells.length = 0; D.course.pods.length = 0 }
   const who = r => [...D.crew.values()].find(c => c.roles.includes(r)).id
   return { g, D, who }
 }
@@ -52,6 +52,7 @@ test('担当以外の操作はサーバーが拒否し、状態は変わらな�
 
 test('不正な入力は { error } を返して状態を変えない', () => {
   const { g, D, who } = setup(5)
+  g.view(who('helm')) // 最初の1回だけ届く位置情報（objs）を先に受け取っておく
   const before = JSON.stringify(g.view(who('helm')))
   for (const [id, d] of [
     [who('helm'), null], [who('helm'), 'steer'], [who('helm'), { type: 'warp' }], [who('helm'), { type: 'steer', dir: 5 }],
@@ -97,6 +98,11 @@ test('目的地に着くと勝ち。結果に到着と星が入る', () => {
   const { g, D } = setup(5)
   D.ship.x = D.course.goal.x; D.ship.y = D.course.goal.y - 100
   run(g, 0.1)
+  assert.equal(g.isOver(), false, '余韻の間はまだ終わらない')
+  assert.deepEqual(g.view('p0').end, { win: true, reason: 'arrive' })
+  assert.equal(g.view('p0').phase, 'end')
+  assert.equal(g.input('p0', { type: 'call', id: 'help' }).error, 'over')
+  run(g, DEFAULTS.endTime + 0.1)
   assert.equal(g.isOver(), true)
   const r = g.result()
   assert.equal(r.win, true); assert.equal(r.reason, 'arrive'); assert.equal(r.title, '到着')
@@ -109,21 +115,22 @@ test('船体が0で負け（大破）', () => {
   const { g, D } = setup(5)
   D.hull = 0.01
   D.ship.x = DEFAULTS.halfWidth + 100 // 航路の外で削れる
-  run(g, 0.2)
+  run(g, 0.2 + DEFAULTS.endTime)
   assert.equal(g.result().reason, 'hull'); assert.equal(g.result().win, false)
 })
 
 test('生命維持が壊れたままだと酸素が尽きて負け', () => {
   const { g, D } = setup(5)
   D.breakSys('life')
-  run(g, 100 / TUNING.o2Loss + 1)
+  run(g, 100 / TUNING.o2Loss + 1 + DEFAULTS.endTime)
   assert.equal(g.isOver(), true)
   assert.equal(g.result().reason, 'o2')
 })
 
 test('時間切れで負け', () => {
-  const { g } = setup(5)
-  run(g, DEFAULTS.timeLimit + 0.5)
+  const { g, who } = setup(5)
+  g.input(who('engine'), { type: 'throttle', level: 0 }) // 中継ラインを越えると時間が増えるので止まっておく
+  run(g, DEFAULTS.timeLimit + 0.5 + DEFAULTS.endTime)
   assert.equal(g.isOver(), true)
   assert.equal(g.result().reason, 'time')
   assert.equal(g.result().score, 0)
@@ -260,14 +267,14 @@ test('途中退出: 抜けた人の担当は残りの人に引き継がれ、舵
 test('8人（最大）でも1人（最小）でも最後まで進む', () => {
   for (const n of [1, 8]) {
     const g = createGame(players(n), { rng: rng(n) })
-    run(g, DEFAULTS.briefTime + DEFAULTS.timeLimit + 1)
+    run(g, DEFAULTS.briefTime + DEFAULTS.timeLimit + DEFAULTS.endTime + 1)
     assert.equal(g.isOver(), true)
     assert.equal(g.result().crew.length, n)
   }
 })
 
 test('故障は勝手に起き、人数が多いほど起きやすい', () => {
-  const count = n => { let s = 0; for (let k = 1; k <= 6; k++) { const g = createGame(players(n), { rng: rng(k) }); g._debug.course.hazards.length = 0; g._debug.nextMeteor = 1e9; run(g, 60); s += g.result().failures } return s }
+  const count = n => { let s = 0; for (let k = 1; k <= 6; k++) { const g = createGame(players(n), { rng: rng(k) }); g._debug.course.hazards.length = 0; g._debug.course.pods.length = 0; g._debug.nextMeteor = 1e9; run(g, 60); s += g.result().failures } return s }
   const one = count(1), eight = count(8)
   assert.ok(one > 0)
   assert.ok(eight > one, `${one} < ${eight}`)
@@ -279,4 +286,217 @@ test('view は毎回小さい（毎秒15回送るため）', () => {
   const sizes = [...D.crew.values()].map(c => { g.view(c.id); return JSON.stringify(g.view(c.id)).length })
   assert.ok(Math.max(...sizes) < 2000, sizes.join())
   void who; void SYSTEMS
+})
+
+// ---- 航路・区間・仕掛け・出来事
+
+test('航路: 知らない航路は既定に戻る。航路ごとに長さ・時間・仕掛けの数が変わる', () => {
+  assert.equal(createGame(players(2), { rng: rng(), route: '__proto__' }).view('p0').route, DEFAULT_ROUTE)
+  assert.equal(createGame(players(2), { rng: rng(), route: 42 }).view('p0').route, DEFAULT_ROUTE)
+  for (const id of ROUTE_IDS) {
+    const R = ROUTES[id]
+    const g = createGame(players(3), { rng: rng(11), route: id })
+    const D = g._debug
+    assert.equal(D.cfg.goalDist, R.goalDist, id)
+    assert.equal(g.view('p0').limit, R.timeLimit)
+    assert.equal(D.course.gates.length, R.sections - 1, id + ' 中継ラインの数')
+    assert.equal(D.course.wells.length, R.wells, id + ' 重力井戸の数')
+    assert.equal(D.course.pods.length, R.pods, id + ' 補給の数')
+    assert.equal(D.course.hazards.filter(h => h.k === 'field').length, R.fields, id + ' 岩場の数')
+    assert.equal(D.course.hazards.filter(h => h.k === 'storm').length, R.storms, id + ' 嵐の数')
+  }
+  // 長さを変えると仕掛けの数も比例する（e2e の短いコース）
+  const short = createGame(players(3), { rng: rng(2), route: 'belt', config: { goalDist: 1800 } })._debug.course
+  assert.ok(short.hazards.length <= 6 && short.hazards.length >= 2, '短いコース ' + short.hazards.length)
+})
+
+test('だんだん難しくなる: 危険地帯は奥ほど多く、大きい', () => {
+  let front = 0, back = 0, rf = 0, rb = 0
+  for (let k = 1; k <= 12; k++) {
+    const D = createGame(players(3), { rng: rng(k), route: 'belt' })._debug
+    for (const h of D.course.hazards) {
+      if (h.y < D.cfg.goalDist / 2) { front++; rf += h.r } else { back++; rb += h.r }
+    }
+  }
+  assert.ok(back > front * 1.4, `奥 ${back} / 手前 ${front}`)
+  assert.ok(rb / back > rf / front, '奥の方が大きい')
+})
+
+test('中継ラインを越えると残り時間が増え、区間が進み、隕石と故障が起きやすくなる', () => {
+  const { g, D } = setup(3, { route: 'belt' })
+  const R = ROUTES.belt
+  assert.equal(D.sec, 0)
+  const d0 = D.diff()
+  const left0 = g.view('p0').left
+  D.ship.y = D.course.gates[0] + 1
+  run(g, 0.1)
+  assert.equal(D.sec, 1)
+  assert.equal(g.view('p0').sec, 1)
+  assert.ok(Math.abs(g.view('p0').left - (left0 + R.gateBonus - 0.1)) < 0.2, '時間が増える')
+  assert.ok(D.diff() > d0)
+  assert.ok(Number.isFinite(D.nextEvent), '区間2から出来事が起き始める')
+  assert.ok(g.view('p0').events.some(e => e.kind === 'gate'))
+  D.ship.y = D.course.gates[1] + 1
+  run(g, 0.1)
+  assert.equal(D.sec, 2)
+  assert.equal(D.diff(), TUNING.diffHi)
+  assert.equal(g.result().gates, 2)
+})
+
+test('月の航路は最後の区間まで出来事が起きない', () => {
+  const { g, D } = setup(3, { route: 'moon' })
+  D.ship.y = D.course.gates[0] + 1
+  run(g, 0.1)
+  assert.equal(D.nextEvent, Infinity)
+  D.ship.y = D.course.gates[1] + 1
+  run(g, 0.1)
+  assert.ok(Number.isFinite(D.nextEvent))
+})
+
+test('重力井戸は船を中心へ引き寄せ、芯に入ると船体が削れる', () => {
+  const { g, D, who } = setup(3, { route: 'hole' })
+  D.course.wells.push({ id: 9, x: 400, y: 600, r: 400 })
+  g.input(who('engine'), { type: 'throttle', level: 0 })
+  D.ship.x = 100; D.ship.y = 600 // 中心から300（中の外寄り）
+  run(g, 1.5)
+  assert.ok(D.ship.x > 120, '中心へ寄る x=' + D.ship.x)
+  assert.equal(g.view('p0').well, true)
+  const h0 = D.hull
+  D.ship.x = 400; D.ship.y = 600; D.drift.x = 0; D.drift.y = 0
+  run(g, 1)
+  assert.ok(D.hull < h0 - TUNING.wellDmg * 0.8, '芯で削れる ' + (h0 - D.hull))
+})
+
+test('補給ポッドは1回だけ拾えて、船体・酸素・電力が戻る。拾ったことは全員に届く', () => {
+  const { g, D } = setup(3)
+  D.course.pods.push({ id: 1, kind: 'hull', x: 0, y: 30, got: false }, { id: 2, kind: 'o2', x: 0, y: 40, got: false }, { id: 3, kind: 'energy', x: 3000, y: 3000, got: false })
+  D.hull = 50; D.o2 = 30
+  run(g, 0.1)
+  assert.equal(D.hull, 50 + TUNING.podHull)
+  assert.ok(D.o2 >= 30 + TUNING.podO2)
+  for (const p of ['p0', 'p1', 'p2']) assert.deepEqual(g.view(p).got, [1, 2])
+  D.hull = 50
+  run(g, 0.5)
+  assert.equal(D.hull, 50, '2回目は拾えない')
+  assert.equal(g.result().pods, 2)
+  assert.equal(g.result().podsTotal, 3)
+})
+
+test('井戸と補給の位置は全員に、数秒おきに届く（ナビ以外にも）。危険地帯は混ざらない', () => {
+  const { g, D } = setup(5, { calm: false, route: 'hole' })
+  for (const c of D.crew.values()) {
+    const v = g.view(c.id)
+    assert.ok(v.objs && v.objs.filter(o => o[0] === 'well').length === ROUTES.hole.wells, c.roles.join())
+    assert.equal(g.view(c.id).objs, undefined, '続けては送らない')
+    assert.ok(!JSON.stringify(v.objs).includes('field') && !JSON.stringify(v.objs).includes('storm'))
+  }
+})
+
+test('太陽風は予告のあと船を横に流す', () => {
+  const { g, D, who } = setup(3, { route: 'storm' })
+  g.input(who('engine'), { type: 'throttle', level: 0 })
+  D.startEvent('wind')
+  const dir = D.ev.dir
+  assert.equal(g.view('p0').ev[0], 'wind')
+  assert.ok(g.view('p0').ev[1] > 2, '予告の秒数')
+  run(g, TUNING.warnTime - 0.2)
+  assert.ok(Math.abs(D.ship.x) < 1, '予告の間は流れない')
+  run(g, 3)
+  assert.ok(D.ship.x * dir > 40, '風の向きに流れる ' + D.ship.x)
+  run(g, TUNING.windTime + 1)
+  assert.equal(D.ev, null)
+})
+
+test('流星群の間は隕石がたくさん来る', () => {
+  const count = shower => {
+    const { g, D } = setup(3, { route: 'belt' })
+    D.nextMeteor = 0
+    let ids = new Set()
+    if (shower) { D.startEvent('shower'); run(g, TUNING.warnTime) }
+    for (let i = 0; i < 6 * 15; i++) { g.tick(1 / 15); for (const m of D.meteors) ids.add(m.id) }
+    return ids.size
+  }
+  const calm = count(false), storm = count(true)
+  assert.ok(storm >= calm * 2.5, `${calm} -> ${storm}`)
+})
+
+test('宇宙ネコ: 乗られた人は追い払うまで操作できない。追い払えるのは本人だけ。全員に見える', () => {
+  const { g, D, who } = setup(5, { route: 'belt' })
+  D.startEvent('cat')
+  const on = D.cat.on
+  const me = D.crew.get(on)
+  const other = [...D.crew.keys()].find(k => k !== on)
+  for (const id of D.crew.keys()) {
+    const v = g.view(id)
+    assert.equal(v.cat.name, me.name)
+    assert.equal(v.cat.me, id === on)
+  }
+  const op = { helm: { type: 'steer', dir: 1 }, engine: { type: 'throttle', level: 2 }, repair: { type: 'repair', sys: 'engine' }, nav: { type: 'mark', x: 0, y: 500 }, defense: { type: 'fire', a: 0 } }[me.roles[0]]
+  assert.equal(g.input(on, op).error, 'cat')
+  assert.equal(g.input(on, { type: 'call', id: 'help' }).ok, true, '声は出せる')
+  assert.equal(g.input(other, { type: 'shoo' }).error, 'no_cat')
+  for (let i = 0; i < TUNING.catHp; i++) { assert.equal(g.input(on, { type: 'shoo' }).ok, true); run(g, 0.1) }
+  assert.equal(D.cat, null)
+  assert.equal(g.view(on).cat, undefined)
+  assert.notEqual(g.input(on, op).error, 'cat')
+  assert.equal(g.result().catShooed, 1)
+  assert.equal(g.result().crew.find(c => c.id === on).shoos, 1)
+  void who
+})
+
+test('宇宙ネコは放っておくと時間で去る。乗られた人が抜けても止まらない', () => {
+  const a = setup(3, { route: 'belt' })
+  a.D.startEvent('cat')
+  run(a.g, TUNING.catTime + 0.2)
+  assert.equal(a.D.cat, null)
+  const b = setup(3, { route: 'belt' })
+  b.D.startEvent('cat')
+  b.g.removePlayer(b.D.cat.on)
+  assert.equal(b.D.cat, null)
+  run(b.g, 1)
+  assert.equal(b.g.isOver(), false)
+})
+
+test('出来事は自然に起き、結果に残る', () => {
+  const { g, D } = setup(3, { route: 'belt', calm: false })
+  D.nextFail = 1e9; D.nextMeteor = 1e9
+  D.ship.y = D.course.gates[0] + 1
+  run(g, 0.1)
+  D.nextEvent = 0
+  run(g, 0.2)
+  assert.ok(D.ev, '出来事が起きた')
+  assert.ok(g.result().events.length === 1)
+})
+
+test('全部の航路を1人と8人で最後まで回しても落ちない（勝手に終わる）', () => {
+  for (const id of ROUTE_IDS) for (const n of [1, 8]) {
+    const g = createGame(players(n), { rng: rng(n + id.length), route: id })
+    const D = g._debug
+    // 何もしないと時間切れか事故で終わる。出来事も起こす
+    D.ship.y = D.course.gates.at(-1) + 1
+    for (let i = 0; i < (DEFAULTS.briefTime + ROUTES[id].timeLimit + 200) * 15 && !g.isOver(); i++) {
+      g.tick(1 / 15)
+      if (i % 40 === 0) for (const c of D.crew.values()) { g.input(c.id, { type: 'shoo' }); g.view(c.id) }
+    }
+    assert.equal(g.isOver(), true, id + n)
+    const r = g.result()
+    assert.equal(r.route, id); assert.equal(r.crew.length, n)
+    assert.ok(JSON.stringify(r).length < 40000)
+  }
+})
+
+test('結果には担当ごとの成績（叩いた回数・撃った数・掛け声）が入る', () => {
+  const { g, D, who } = setup(5)
+  D.breakSys('engine')
+  g.input(who('repair'), { type: 'repair', sys: 'engine' })
+  g.input(who('defense'), { type: 'fire', a: 0 })
+  g.input(who('helm'), { type: 'steer', dir: -1 })
+  g.input(who('nav'), { type: 'call', id: 'sorry' })
+  const r = g.result()
+  const c = id => r.crew.find(x => x.id === id)
+  assert.equal(c(who('repair')).taps, 1)
+  assert.equal(c(who('defense')).shots, 1)
+  assert.equal(c(who('helm')).steers, 1)
+  assert.equal(c(who('nav')).sorry, 1)
+  assert.ok(r.crew.every(x => Number.isInteger(x.seat)))
 })

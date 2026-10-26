@@ -4,27 +4,34 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>宇宙船クルー｜みんなで1隻を飛ばす協力ゲーム</title>
-<meta name="description" content="操縦・エンジン・修理・ナビ・防衛。担当ごとに違う操作盤で、全員で1隻の宇宙船を目的地まで運ぶ。リンクを送るだけでスマホから3〜8人で遊べる。">
+<meta name="description" content="操縦・エンジン・修理・ナビ・防衛。担当ごとに違う操作盤で、全員で1隻の宇宙船を目的地まで運ぶ。小惑星帯・電磁嵐・ブラックホールなど5つの航路。リンクを送るだけでスマホから1〜8人で遊べる。">
 <meta property="og:type" content="website">
 <meta property="og:title" content="宇宙船クルー｜みんなで1隻を飛ばす協力ゲーム">
-<meta property="og:description" content="危険地帯が見えるのはナビだけ。舵を握るのは別の人。声を掛け合って、壊れていく船を目的地まで運べ。3〜8人・1プレイ約2分。">
+<meta property="og:description" content="危険が見えるのはナビだけ。舵を握るのは別の人。声を掛け合って、壊れていく船を目的地まで運べ。スマホで1〜8人・1プレイ約2分。">
 <meta property="og:image" content="/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="theme-color" content="#0b1020">
+<meta name="theme-color" content="#140c33">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=RocknRoll+One&family=Zen+Maru+Gothic:wght@500;700;900&family=Orbitron:wght@700;900&display=swap">
 <link rel="stylesheet" href="/style.css">
 <script>
   // 起動に失敗したときに原因を画面に出す（module の読み込み自体が失敗すると中の catch は動かないため、素の script で拾う）
   window.__errs = []
   window.addEventListener('error', e => window.__errs.push(e.message || String(e)))
   window.addEventListener('unhandledrejection', e => window.__errs.push(String(e.reason)))
-  setTimeout(() => {
+  // 遅い回線では 3D の読み込みに時間がかかるので、エラーが出たとき（8秒）か、20秒たっても起動しないときだけ出す。後から起動できたら app.js が消す
+  const showBootErr = () => {
     if (window.__boot) return
     const d = document.getElementById('bootErr')
     d.hidden = false
     d.textContent = '起動できませんでした: ' + (window.__errs.join(' / ') || '読み込み失敗') + ' / ' + navigator.userAgent
-  }, 5000)
+  }
+  setTimeout(() => { if (window.__errs.length) showBootErr() }, 8000)
+  setTimeout(showBootErr, 20000)
   // ブラウザの拡大を止める（iOS は viewport の指定を無視するので、ジェスチャーごと止める）
   ;(function () {
     const stop = e => e.preventDefault()
@@ -34,7 +41,7 @@
     let lastEnd = 0
     document.addEventListener('touchend', e => {
       const now = Date.now()
-      const onCtl = e.target.closest && e.target.closest('button, input, canvas, summary')
+      const onCtl = e.target.closest && e.target.closest('button, input, canvas, summary, label, a')
       if (!onCtl && now - lastEnd < 350) e.preventDefault()
       lastEnd = now
     }, opt)
@@ -44,70 +51,135 @@
   })()
 </script>
 </head>
-<body>
+<body data-screen="home">
 <div id="bootErr" class="boot-err" hidden></div>
+<div class="space-bg" aria-hidden="true"><i class="stars s1"></i><i class="stars s2"></i><i class="planet"></i></div>
 
 <header class="top">
-  <span class="logo" id="logo"><svg class="logo-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l6 15-6-3-6 3Z"/><path d="M9 19l3 3 3-3"/></svg>宇宙船クルー</span>
+  <span class="mini-logo"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#i-ship"/></svg>宇宙船クルー</span>
   <span class="net" id="net" data-s="connecting">接続しています</span>
 </header>
 
 <main>
-  <section id="home" class="card" hidden>
-    <p class="eyebrow">3〜8人で遊ぶ協力ゲーム</p>
-    <h1 id="homeTitle">宇宙船クルー</h1>
-    <p id="homeLead" class="lead">全員で1隻の船を動かす。危険が見えるのはナビだけ、舵を握るのは別の人。声を掛け合って目的地まで運ぼう。</p>
-    <label class="field">ニックネーム
-      <input id="name" maxlength="12" autocomplete="nickname" placeholder="例: たろう" enterkeyhint="done">
-    </label>
-    <button id="createBtn" class="primary">部屋を作る</button>
-    <details id="joinBox">
-      <summary>参加コードで入る</summary>
-      <div class="row">
-        <input id="code" maxlength="4" inputmode="latin" autocapitalize="characters" placeholder="ABCD" aria-label="参加コード">
-        <button id="joinBtn">参加</button>
+  <section id="home" class="screen" hidden>
+    <div class="hero">
+      <svg class="logo-svg" viewBox="0 0 440 250" role="img" aria-label="宇宙船クルー">
+        <defs>
+          <linearGradient id="lgSun" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff27a"/><stop offset=".5" stop-color="#ffb02e"/><stop offset="1" stop-color="#ff5e3a"/></linearGradient>
+          <linearGradient id="lgSky" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7ae8ff"/><stop offset="1" stop-color="#b98bff"/></linearGradient>
+        </defs>
+        <ellipse cx="220" cy="132" rx="206" ry="58" fill="none" stroke="url(#lgSky)" stroke-width="5" stroke-dasharray="2 12" stroke-linecap="round" transform="rotate(-9 220 132)"/>
+        <g fill="#fff"><circle cx="30" cy="40" r="3"/><circle cx="404" cy="30" r="2.5"/><circle cx="420" cy="196" r="3"/><circle cx="16" cy="200" r="2"/><path d="M372 70l3 8 8 3-8 3-3 8-3-8-8-3 8-3z"/><path d="M58 92l2.4 6 6 2.4-6 2.4-2.4 6-2.4-6-6-2.4 6-2.4z"/></g>
+        <text x="58" y="88" font-family="RocknRoll One, Hiragino Maru Gothic ProN, sans-serif" font-size="52" fill="#fff" stroke="#140c33" stroke-width="10" stroke-linejoin="round" paint-order="stroke">宇宙船</text>
+        <text x="40" y="200" font-family="RocknRoll One, Hiragino Maru Gothic ProN, sans-serif" font-size="104" letter-spacing="-4" fill="url(#lgSun)" stroke="#140c33" stroke-width="14" stroke-linejoin="round" paint-order="stroke">クルー</text>
+        <g transform="translate(352 104) rotate(32)">
+          <path d="M-12 30q12 34 24 0z" fill="#ffb02e" stroke="#140c33" stroke-width="5" stroke-linejoin="round"/>
+          <path d="M0-46c22 16 24 52 14 78h-28c-10-26-8-62 14-78z" fill="#f6f1e7" stroke="#140c33" stroke-width="6" stroke-linejoin="round"/>
+          <circle cx="0" cy="-8" r="11" fill="#7ae8ff" stroke="#140c33" stroke-width="5"/>
+          <path d="M-15 12l-15 20 16-4zM15 12l15 20-16-4z" fill="#ff5e3a" stroke="#140c33" stroke-width="5" stroke-linejoin="round"/>
+        </g>
+      </svg>
+      <p class="tagline">危険が見えるのは<b>ナビだけ</b>。<wbr>舵を握るのは<b>別の人</b>。</p>
+    </div>
+    <div class="panel">
+      <p class="panel-head"><span class="led"></span>乗船手続き<span class="panel-sub">1〜8人</span></p>
+      <label class="field"><span>クルーの名前</span>
+        <input id="name" maxlength="12" autocomplete="nickname" placeholder="例: たろう" enterkeyhint="done">
+      </label>
+      <button id="createBtn" class="btn primary">部屋を作る</button>
+      <div class="row two">
+        <details id="joinBox">
+          <summary class="btn">コードで参加</summary>
+          <div class="row join-row">
+            <input id="code" maxlength="4" inputmode="latin" autocapitalize="characters" placeholder="ABCD" aria-label="参加コード">
+            <button id="joinBtn" class="btn primary">参加</button>
+          </div>
+        </details>
+        <button id="howBtn" class="btn ghost">遊び方</button>
       </div>
-    </details>
-    <div id="howto" class="howto">
-      <p class="howto-k">遊び方</p>
-      <ol>
-        <li>担当が配られる。<b>操縦・エンジン・修理・ナビ・防衛</b>で操作盤が全部違う</li>
-        <li>岩場と電磁嵐は<b>ナビの地図にしか出ない</b>。口で伝えて避ける</li>
-        <li>故障は次々起きる。全部は直せない。何から直すか決めて、<b>150秒以内に目的地へ</b></li>
-      </ol>
     </div>
   </section>
 
-  <section id="lobby" class="card" hidden>
-    <p class="muted">参加コード</p>
-    <p class="code" id="roomCode"></p>
-    <div class="row">
-      <input id="invite" readonly aria-label="招待URL">
-      <button id="copyBtn">招待</button>
+  <section id="lobby" class="screen" hidden>
+    <div class="panel lobby">
+      <div class="lobby-top">
+        <div><p class="muted">参加コード</p><p class="code" id="roomCode"></p></div>
+        <p class="count" id="count"></p>
+      </div>
+      <div class="row">
+        <input id="invite" readonly aria-label="招待URL">
+        <button id="copyBtn" class="btn">招待</button>
+      </div>
+      <ul id="players" class="players"></ul>
+      <div class="pick" id="routePick"></div>
+      <p id="rolePreview" class="role-preview"></p>
+      <p id="lobbyHint" class="hint"></p>
+      <div class="row lobby-actions">
+        <button id="leaveBtn" class="btn ghost">部屋を出る</button>
+        <button id="startBtn" class="btn primary grow" hidden>発進準備</button>
+      </div>
     </div>
-    <p class="muted"><span id="count"></span></p>
-    <ul id="players" class="players"></ul>
-    <p id="rolePreview" class="role-preview"></p>
-    <p id="lobbyHint" class="hint"></p>
-    <button id="startBtn" class="primary" hidden>発進準備</button>
-    <button id="leaveBtn" class="ghost">部屋を出る</button>
   </section>
 
   <section id="game" hidden>
     <div id="stage" class="stage"></div>
-    <button id="quitBtn" class="ghost small quit">退出</button>
+    <button id="quitBtn" class="icon-btn quit" aria-label="退出"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/></svg></button>
   </section>
 
-  <section id="result" class="card" hidden>
-    <h2 id="resultTitle" class="result-title"></h2>
-    <div id="resultBody"></div>
-    <p id="resultHint" class="hint"></p>
-    <div class="res-btns">
-      <button id="rematchBtn" class="primary" hidden>もう一回</button>
-      <button id="lobbyBtn" class="ghost" hidden>ロビーに戻る</button>
+  <section id="result" class="screen" hidden>
+    <div class="panel result">
+      <h2 id="resultTitle" class="result-title"></h2>
+      <div id="resultBody" class="result-body"></div>
+      <p id="resultHint" class="hint"></p>
+      <div class="row result-actions">
+        <button id="lobbyBtn" class="btn ghost" hidden>航路を選ぶ</button>
+        <button id="rematchBtn" class="btn primary grow" hidden>もう一回</button>
+      </div>
     </div>
   </section>
 </main>
+
+<div id="howto" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="howtoTitle">
+  <div class="panel modal-card">
+    <p class="panel-head" id="howtoTitle"><span class="led"></span>遊び方<span class="panel-sub">3つだけ</span></p>
+    <ol class="steps">
+      <li>
+        <svg viewBox="0 0 96 64" aria-hidden="true">
+          <rect x="4" y="10" width="88" height="44" rx="10" fill="#241a52" stroke="#140c33" stroke-width="3"/>
+          <g stroke="#140c33" stroke-width="2.5"><circle cx="20" cy="32" r="9" fill="#ff8a1f"/><circle cx="38" cy="32" r="9" fill="#3ef0b0"/><circle cx="56" cy="32" r="9" fill="#4fd8ff"/><circle cx="74" cy="32" r="9" fill="#c86bff"/></g>
+          <path d="M16 32h8M20 28v8M34 32l4-4 4 4M52 29h8v6h-8zM70 28l8 8M78 28l-8 8" stroke="#140c33" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        </svg>
+        <p><b>担当が配られる</b>操縦・エンジン・修理・ナビ・防衛。操作盤は人ごとに全部ちがう</p>
+      </li>
+      <li>
+        <svg viewBox="0 0 96 64" aria-hidden="true">
+          <rect x="6" y="6" width="50" height="52" rx="6" fill="#0e2a3a" stroke="#140c33" stroke-width="3"/>
+          <circle cx="24" cy="24" r="9" fill="rgba(255,138,31,.35)" stroke="#ff8a1f" stroke-width="2.5"/>
+          <circle cx="40" cy="42" r="8" fill="rgba(200,107,255,.3)" stroke="#c86bff" stroke-width="2.5" stroke-dasharray="3 2"/>
+          <path d="M31 54l2-14 6-10" stroke="#4fd8ff" stroke-width="2.5" fill="none" stroke-dasharray="3 3"/>
+          <path d="M64 18h26v16H76l-6 6v-6h-6z" fill="#fff" stroke="#140c33" stroke-width="2.5" stroke-linejoin="round"/>
+          <path d="M70 26h14" stroke="#140c33" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <p><b>危険はナビにしか見えない</b>岩場と電磁嵐は地図だけに出る。口と掛け声ボタンで伝えて、よける</p>
+      </li>
+      <li>
+        <svg viewBox="0 0 96 64" aria-hidden="true">
+          <path d="M8 44l14-22 18 6 16-14 14 20 18-8" fill="none" stroke="#4fd8ff" stroke-width="3" stroke-dasharray="4 4"/>
+          <rect x="34" y="16" width="16" height="24" rx="3" fill="none" stroke="#3ef0b0" stroke-width="3"/>
+          <circle cx="86" cy="46" r="8" fill="#3ef0b0" stroke="#140c33" stroke-width="3"/>
+          <path d="M14 52l6-6 6 6" stroke="#ff4a5e" stroke-width="3" fill="none" stroke-linecap="round"/>
+        </svg>
+        <p><b>壊れながら目的地へ</b>故障は次々に起きる。中継ラインを越えると時間が増え、だんだん難しくなる</p>
+      </li>
+    </ol>
+    <p class="howto-s">舵は1回押すと曲がりっぱなし、もう1回で戻る。防衛は上の画面の隕石をタップして撃つ。補給ポッドで船体・酸素・電力が戻る。着くと星と称号。PC は 矢印キー / 1〜5 / スペース / Tab</p>
+    <button id="howClose" class="btn primary">わかった</button>
+  </div>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-ship" viewBox="0 0 32 32"><path d="M16 2c7 5 8 15 5 22h-10c-3-7-2-17 5-22z" fill="#f6f1e7" stroke="#140c33" stroke-width="2.4" stroke-linejoin="round"/><circle cx="16" cy="12" r="3.6" fill="#7ae8ff" stroke="#140c33" stroke-width="2"/><path d="M11 18l-5 7 6-1zM21 18l5 7-6-1z" fill="#ff5e3a" stroke="#140c33" stroke-width="2" stroke-linejoin="round"/><path d="M13 25q3 7 6 0z" fill="#ffb02e" stroke="#140c33" stroke-width="2"/></symbol>
+</svg>
 
 <div id="toast" class="toast" role="status" hidden></div>
 <footer class="foot"><span id="ping"></span></footer>

@@ -70,6 +70,9 @@ test('ゲームが終わると結果になり、ホストが再戦できる', ()
   for (let i = 0; i < 60; i++) m.tick(100) // 発進
   D.ship.x = D.course.goal.x; D.ship.y = D.course.goal.y
   m.tick(100)
+  assert.equal(room.phase, 'playing') // 着いても余韻の間は結果に移らない
+  assert.equal(room.game.view(a).phase, 'end')
+  for (let i = 0; i < gameDef.DEFAULTS.endTime * 10 + 2; i++) m.tick(100)
   assert.equal(room.phase, 'result')
   assert.equal(room.result.win, true)
   assert.equal(m.rematch(a).ok, true)
@@ -97,7 +100,7 @@ test('時間切れで負けになる', () => {
   m.start(a)
   m.rooms.get(code).game._debug.course.hazards.length = 0
   m.input(a, { type: 'throttle', level: 0 })
-  for (let i = 0; i < (gameDef.DEFAULTS.timeLimit + gameDef.DEFAULTS.briefTime + 1) * 10; i++) advance(100)
+  for (let i = 0; i < (gameDef.DEFAULTS.timeLimit + gameDef.DEFAULTS.briefTime + gameDef.DEFAULTS.endTime + 1) * 10; i++) advance(100)
   assert.equal(m.rooms.get(code).phase, 'result')
   assert.equal(m.rooms.get(code).result.win, false)
 })
@@ -149,4 +152,22 @@ test('他人の token では席を奪えない', () => {
   const a = m.newSession()
   assert.equal(m.resume(a.id, 'wrong'), null)
   assert.ok(m.resume(a.id, a.token))
+})
+
+test('ホストが選んだ航路は全員に届き、開始時の route はゲームが検証する', () => {
+  const { m, s, sent } = setup()
+  const a = s(), b = s()
+  const { code } = m.create(a, 'A')
+  m.join(b, code, 'B')
+  assert.equal(m.setup(b, { route: 'hole' }).error, 'not_host')
+  assert.equal(m.setup(a, { route: 'hole', 'x y': 'z', bad: 5, evil: '<b>' }).ok, true)
+  assert.deepEqual(m.rooms.get(code).setup, { route: 'hole' })
+  const last = sent.filter(([id, msg]) => id === b && msg.t === 'state').at(-1)[1]
+  assert.deepEqual(last.setup, { route: 'hole' })
+  m.start(a, { route: 'hole' })
+  assert.equal(m.rooms.get(code).game.view(a).route, 'hole')
+  const c = s()
+  const { code: c2 } = m.create(c, 'C')
+  m.start(c, { route: 'nowhere' }) // 知らない航路は既定に戻す
+  assert.equal(m.rooms.get(c2).game.view(c).route, gameDef.DEFAULT_ROUTE)
 })

@@ -53,7 +53,8 @@ test('2人がつないで、作成・参加・開始・操作・終了・再戦�
     const room = srv.rooms.rooms.get(code)
     const D = room.game._debug
     D.ship.x = D.course.goal.x; D.ship.y = D.course.goal.y - 50
-    const end = await b.wait(m => m.t === 'state' && m.phase === 'result')
+    await b.wait(m => m.t === 'state' && m.game && m.game.phase === 'end' && m.game.end.win === true)
+    const end = await b.wait(m => m.t === 'state' && m.phase === 'result', 6000)
     assert.equal(end.result.win, true)
     assert.equal(end.result.title, '到着')
     a.send({ t: 'rematch' })

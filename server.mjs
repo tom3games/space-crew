@@ -92,6 +92,7 @@ export function startServer({ port = Number(process.env.PORT) || 8106, quiet = f
         case 'start': r = rooms.start(session, msg.opts); break
         case 'input': r = rooms.input(session, msg.data); break
         case 'rematch': r = rooms.rematch(session, msg.opts); break
+        case 'setup': r = rooms.setup(session, msg.opts); break
         case 'lobby': r = rooms.backToLobby(session); break
         case 'ping': return reply({ t: 'pong', at: msg.at })
         default: r = { error: 'unknown' }
